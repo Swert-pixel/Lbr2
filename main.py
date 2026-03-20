@@ -58,39 +58,23 @@ def blas_matrix_multiply(A, B):
     return np.dot(A, B)  # или A @ B
 
 
-#Вариант 3
-def optimized_matrix_multiply(A, B):
-
+# Вариант 3: Оптимизированный алгоритм с векторизацией (без прямого вызова BLAS для всей матрицы)
+def vectorized_optimized_multiply(A, B):
+    """
+    Оптимизированное умножение матриц с использованием векторизации NumPy.
+    Алгоритм: умножаем каждую строку A на всю матрицу B с помощью broadcasting.
+    Не использует np.dot для всей матрицы, но использует векторизованные операции.
+    """
     n = len(A)
-    block_size = 256  # Оптимальный размер блока для матрицы 1024
-
     C = np.zeros((n, n), dtype=np.float64)
 
-    # Основной цикл по блокам
-    for i in range(0, n, block_size):
-        i_end = min(i + block_size, n)
-        for j in range(0, n, block_size):
-            j_end = min(j + block_size, n)
-
-            # Временная матрица для накопления результата блока
-            # Используем float64 для максимальной точности
-            block_C = np.zeros((i_end - i, j_end - j), dtype=np.float64)
-
-            for k in range(0, n, block_size):
-                k_end = min(k + block_size, n)
-
-                # Умножение блоков с использованием векторизованных операций
-                # np.dot вызывает оптимизированный BLAS под капотом
-                block_C += np.dot(
-                    A[i:i_end, k:k_end],
-                    B[k:k_end, j:j_end]
-                )
-
-            # Сохраняем результат блока
-            C[i:i_end, j:j_end] = block_C
+    for i in range(n):
+        # Векторизованное умножение i-й строки на всю матрицу B
+        # Используем broadcasting: строка (n,) превращается в (n, 1) и умножается на B (n, n)
+        # Результат: C[i, :] = sum_k (A[i, k] * B[k, :])
+        C[i, :] = np.sum(A[i, :, np.newaxis] * B, axis=0)
 
     return C
-
 
 
 def get_system_info():
@@ -107,7 +91,6 @@ def get_system_info():
     # Получение информации о BLAS
     blas_info_str = "Информация о BLAS не найдена"
     try:
-        # Захватываем вывод show_config() в переменную
         old_stdout = sys.stdout
         new_stdout = io.StringIO()
         sys.stdout = new_stdout
@@ -115,7 +98,6 @@ def get_system_info():
         sys.stdout = old_stdout
         full_config = new_stdout.getvalue()
 
-        # Ищем ключевые слова
         if 'mkl' in full_config.lower():
             blas_info_str = "Intel MKL"
         elif 'openblas' in full_config.lower():
@@ -125,7 +107,6 @@ def get_system_info():
         elif 'accelerate' in full_config.lower():
             blas_info_str = "Accelerate (macOS)"
         else:
-            # Сохраняем первые 200 символов конфига
             blas_info_str = full_config[:200].replace('\n', ' ') + '...'
     except Exception as e:
         blas_info_str = f"Не удалось получить информацию: {e}"
@@ -143,29 +124,25 @@ def run_benchmark():
     print(f"Теоретическое количество операций: {FLOPS_COUNT:.2e}")
     print("=" * 60)
 
-    # Информация о системе
     print("\nПолучение информации о системе...")
     sys_info = get_system_info()
     print("\nИнформация о системе:")
     for key, value in sys_info.items():
         print(f"  {key}: {value}")
 
-    # Генерация матриц
     print("\nГенерация матриц...")
     A, B = generate_matrices()
     print(f"  Матрицы размером {N}x{N} сгенерированы")
 
-    # Проверка корректности результатов
     print("\nПроверка корректности результатов...")
-    reference = np.dot(A, B)  # эталонный результат
+    reference = np.dot(A, B)
 
     results = []
 
-    # Тестирование вариантов
     variants = [
         ("Классический (тройной цикл)", classic_matrix_multiply),
         ("BLAS (NumPy dot)", blas_matrix_multiply),
-        ("Оптимизированный (блочный, блок 256)", optimized_matrix_multiply),
+        ("Оптимизированный (векторизованный)", vectorized_optimized_multiply),
     ]
 
     for idx, (name, func) in enumerate(variants):
@@ -174,18 +151,15 @@ def run_benchmark():
         print(f"  Запуск...")
 
         try:
-            # Измерение времени
             C, exec_time = measure_time(func, A, B)
 
-            # Проверка корректности (с меньшей точностью для классического алгоритма)
-            if idx == 0:  # Классический алгоритм
+            if idx == 0:
                 if not np.allclose(C, reference, rtol=1e-5, atol=1e-5):
                     print(f"  ⚠️  Результат классического алгоритма отличается от эталона")
             else:
                 if not np.allclose(C, reference, rtol=1e-8, atol=1e-8):
                     print(f"  ⚠️  Результат может отличаться от эталона")
 
-            # Расчет производительности
             mflops = calculate_performance(exec_time)
 
             result_entry = {
@@ -218,7 +192,6 @@ def plot_results(results):
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
 
-    # График времени
     bars1 = ax1.bar(names, times, color=['red', 'green', 'blue'])
     ax1.set_xlabel('Алгоритм')
     ax1.set_ylabel('Время (секунды)')
@@ -230,7 +203,6 @@ def plot_results(results):
         ax1.text(bar.get_x() + bar.get_width() / 2, height,
                  f'{t:.3f} с', ha='center', va='bottom', fontsize=9, rotation=0)
 
-    # График производительности
     bars2 = ax2.bar(names, mflops, color=['red', 'green', 'blue'])
     ax2.set_xlabel('Алгоритм')
     ax2.set_ylabel('Производительность (MFLOPS)')
@@ -243,14 +215,12 @@ def plot_results(results):
 
     plt.tight_layout()
 
-    # Сохраняем график
     try:
         plt.savefig('matrix_multiplication_benchmark.png', dpi=150, bbox_inches='tight')
         print("\nГрафики сохранены в 'matrix_multiplication_benchmark.png'")
     except Exception as e:
         print(f"Не удалось сохранить график: {e}")
 
-    # Показываем график
     plt.show()
 
 
@@ -273,7 +243,6 @@ def main():
     print("ИТОГОВЫЕ РЕЗУЛЬТАТЫ")
     print("=" * 60)
 
-    # Подготовка данных для таблицы
     headers = ["Вариант", "Время (с)", "MFLOPS", "Относительно BLAS"]
     table_data = []
 
@@ -301,7 +270,6 @@ def main():
 
     print(tabulate(table_data, headers=headers, tablefmt="grid"))
 
-    # Анализ результатов
     print("\n" + "=" * 60)
     print("АНАЛИЗ РЕЗУЛЬТАТОВ")
     print("=" * 60)
@@ -321,20 +289,15 @@ def main():
         if opt_ratio >= 30:
             print(
                 f"\n✅ ТРЕБОВАНИЕ ВЫПОЛНЕНО: оптимизированный алгоритм достиг {opt_ratio:.1f}% от производительности BLAS (требуется ≥30%)")
-            print(f"   Отлично! Ваш алгоритм работает достаточно быстро.")
         else:
             print(f"\n❌ ТРЕБОВАНИЕ НЕ ВЫПОЛНЕНО: оптимизированный алгоритм достиг только {opt_ratio:.1f}% от BLAS")
-            print(f"   Нужно ≥30%. Попробуйте уменьшить размер блока до 128 или увеличить до 512.")
 
-
-    # Ускорение классического алгоритма
     if len(results) >= 2:
         speedup_blas = results[0]["Время (с)"] / results[1]["Время (с)"]
         speedup_opt = results[0]["Время (с)"] / results[2]["Время (с)"]
         print(f"📊 BLAS быстрее классического в {speedup_blas:.0f} раз")
         print(f"📊 Оптимизированный быстрее классического в {speedup_opt:.0f} раз")
 
-    # Построение графиков
     try:
         plot_results(results)
     except Exception as e:
